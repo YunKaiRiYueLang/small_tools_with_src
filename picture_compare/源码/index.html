@@ -38,8 +38,26 @@
   input[type=file]{display:none}
 
   /* ---------- 图像区：左右并排 ---------- */
-  #view{flex:1; min-height:0; display:flex; gap:1px; background:var(--line); position:relative}
-  .pane{flex:1 1 50%; min-width:0; display:flex; flex-direction:column; background:var(--panel2)}
+  #view{flex:1; min-height:0; display:flex; background:var(--line); position:relative}
+  .pane{flex:1 1 0; min-width:0; display:flex; flex-direction:column; background:var(--panel2)}
+
+  /* ---------- 可拖动分隔条（左右调 A/B 宽度，上下调底栏高度） ---------- */
+  .splitter{
+    flex:0 0 auto; position:relative; z-index:4; background:var(--bg);
+    touch-action:none; user-select:none; -webkit-user-select:none;
+  }
+  .splitter::before{
+    content:''; position:absolute; background:var(--line); transition:background .12s;
+  }
+  .splitter:hover::before,
+  .splitter.active::before,
+  .splitter:focus-visible::before{background:var(--accent)}
+  .splitter:focus-visible{outline:none}
+  .splitter.vsplit{flex-basis:7px; width:7px; cursor:col-resize}
+  .splitter.vsplit::before{inset:0 3px}
+  .splitter.hsplit{flex-basis:7px; height:7px; cursor:row-resize}
+  .splitter.hsplit::before{inset:3px 0}
+  .splitter.hidden{display:none}
   .pane-head{
     display:flex; align-items:center; gap:8px; padding:5px 10px; font-size:11px; color:var(--dim);
     border-bottom:1px solid var(--line); white-space:nowrap; overflow:hidden;
@@ -76,7 +94,7 @@
   /* ---------- 底部：像素详情（仿 BC） + 差异位置 ---------- */
   #bottom{
     flex:0 0 auto; height:250px; display:flex; flex-direction:row;
-    background:var(--panel); border-top:1px solid var(--line);
+    background:var(--panel);
   }
   #bottom.hidden{display:none}
 
@@ -146,14 +164,16 @@
 </header>
 
 <div id="view">
-  <div class="pane">
+  <div class="pane" id="paneA">
     <div class="pane-head"><span class="badge a">A</span><span class="nm" id="nmA">未载入</span><span class="tag" id="dimA"></span></div>
     <div class="pane-body" id="bodyA">
       <div class="pane-hint" id="hintA">拖入图片，或点左上角「A：选择图片」</div>
       <canvas id="pA"></canvas>
     </div>
   </div>
-  <div class="pane">
+  <div class="splitter vsplit" id="vsplit" role="separator" aria-orientation="vertical"
+       aria-label="调整 A / B 两栏宽度" tabindex="0" title="拖动调整 A/B 宽度，双击恢复 50/50"></div>
+  <div class="pane" id="paneB">
     <div class="pane-head"><span class="badge b">B</span><span class="nm" id="nmB">未载入</span><span class="tag" id="dimB"></span></div>
     <div class="pane-body" id="bodyB">
       <div class="pane-hint" id="hintB">拖入图片，或点左上角「B：选择图片」</div>
@@ -162,6 +182,9 @@
   </div>
   <div id="drop">把两张图片拖进来 · 支持 TIFF / PNG / JPG / BMP / GIF / WEBP</div>
 </div>
+
+<div class="splitter hsplit" id="hsplit" role="separator" aria-orientation="horizontal"
+     aria-label="调整图像区与底部面板的高度" tabindex="0" title="拖动调整上下高度，双击恢复默认"></div>
 
 <section id="bottom">
   <div id="pixelPanel">
@@ -740,10 +763,128 @@
   $('#toggleBottom').onclick = () => {
     const b = $('#bottom');
     b.classList.toggle('hidden');
+    $('#hsplit').classList.toggle('hidden', b.classList.contains('hidden'));
     $('#toggleBottom').textContent = b.classList.contains('hidden') ? '展开差异面板' : '收起差异面板';
     applyFit();
     markZoomCursor();
   };
+
+  /* ================= 分隔条：拖动调整左右宽度 / 上下高度 ================= */
+  const paneA = $('#paneA'), paneB = $('#paneB');
+  const vsplit = $('#vsplit'), hsplit = $('#hsplit'), bottomEl = $('#bottom');
+  const SPLIT_KEY = 'pictureCompare.split';
+  const clampNum = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  function readSplitX() {
+    const r = view.getBoundingClientRect();
+    const avail = r.width - vsplit.offsetWidth;
+    return avail > 0 ? paneA.getBoundingClientRect().width / avail : 0.5;
+  }
+  function readSplitH() {
+    return bottomEl.getBoundingClientRect().height || 250;
+  }
+  function saveSplit() {
+    try {
+      localStorage.setItem(SPLIT_KEY, JSON.stringify({ x: readSplitX(), h: readSplitH() }));
+    } catch (e) { /* 隐私模式等情况下忽略 */ }
+  }
+
+  // 布局变化后重算「适应」基准；如果当前正处于适应状态，则跟着重新适配
+  function afterSplitMove(wasFit) {
+    applyFit();
+    if (wasFit && W && H) { zoom = fitZoom; applyZoom(); }
+    else markZoomCursor();
+  }
+
+  function setSplitX(ratio, wasFit) {
+    ratio = clampNum(ratio, 0.08, 0.92);
+    paneA.style.flexGrow = ratio;
+    paneB.style.flexGrow = 1 - ratio;
+    afterSplitMove(wasFit);
+    saveSplit();
+  }
+
+  function setSplitH(px, wasFit) {
+    px = clampNum(px, 96, Math.max(140, window.innerHeight - 200));
+    bottomEl.style.height = px + 'px';
+    afterSplitMove(wasFit);
+    saveSplit();
+  }
+
+  function restoreSplit() {
+    let s = null;
+    try { s = JSON.parse(localStorage.getItem(SPLIT_KEY) || 'null'); } catch (e) {}
+    if (!s) return;
+    if (isFinite(s.x)) setSplitX(s.x, false);
+    if (isFinite(s.h)) setSplitH(s.h, false);
+  }
+
+  function bindSplitter(el, kind) {
+    const isX = kind === 'x';
+    el.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const wasFit = Math.abs(zoom - fitZoom) < 1e-3;
+      const applyAt = ev => {
+        if (isX) {
+          const r = view.getBoundingClientRect();
+          const avail = r.width - vsplit.offsetWidth;
+          if (avail > 0) setSplitX((ev.clientX - r.left) / avail, wasFit);
+        } else {
+          setSplitH(window.innerHeight - ev.clientY, wasFit);
+        }
+      };
+      el.classList.add('active');
+      el.setPointerCapture(e.pointerId);
+      applyAt(e);
+      const move = ev => { if (ev.pointerId === e.pointerId) applyAt(ev); };
+      const end = ev => {
+        if (ev.pointerId !== e.pointerId) return;
+        el.removeEventListener('pointermove', move);
+        el.removeEventListener('pointerup', end);
+        el.removeEventListener('pointercancel', end);
+        el.classList.remove('active');
+        applyFit();
+        markZoomCursor();
+        saveSplit();
+      };
+      el.addEventListener('pointermove', move);
+      el.addEventListener('pointerup', end);
+      el.addEventListener('pointercancel', end);
+    });
+
+    // 双击恢复默认比例 / 默认高度
+    el.addEventListener('dblclick', () => {
+      if (isX) setSplitX(0.5, true); else setSplitH(250, true);
+    });
+
+    // 键盘：方向键微调（Shift 加速），Home 复位
+    el.addEventListener('keydown', e => {
+      if (isX) {
+        const step = e.shiftKey ? 0.1 : 0.02;
+        let r = readSplitX();
+        if (e.key === 'ArrowLeft') r -= step;
+        else if (e.key === 'ArrowRight') r += step;
+        else if (e.key === 'Home') r = 0.5;
+        else return;
+        e.preventDefault();
+        setSplitX(r, true);
+      } else {
+        const step = e.shiftKey ? 40 : 10;
+        let h = readSplitH();
+        if (e.key === 'ArrowUp') h += step;
+        else if (e.key === 'ArrowDown') h -= step;
+        else if (e.key === 'Home') h = 250;
+        else return;
+        e.preventDefault();
+        setSplitH(h, true);
+      }
+    });
+  }
+
+  bindSplitter(vsplit, 'x');
+  bindSplitter(hsplit, 'y');
+  restoreSplit();
 
   // 缩放只作用于图像：Ctrl/Cmd + 滚轮，Ctrl/Cmd + "-" "0"
   document.addEventListener('wheel', e => {
@@ -853,6 +994,9 @@
   });
 
   window.addEventListener('resize', () => {
+    // 窗口变矮时，底栏高度别把图像区挤没
+    const maxH = Math.max(140, window.innerHeight - 200);
+    if (bottomEl.getBoundingClientRect().height > maxH) setSplitH(maxH, Math.abs(zoom - fitZoom) < 1e-3);
     if (!nA) return;
     applyFit();
     markZoomCursor();
