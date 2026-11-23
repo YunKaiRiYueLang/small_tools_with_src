@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>图片比对</title>
+<style>
+  :root{
+    --bg:#15171c; --panel:#1e2128; --panel2:#191c22; --line:#2e333d; --fg:#dfe3ea; --dim:#8b93a3;
+    --accent:#4f9cf9; --ok:#3ecf8e; --warn:#f5a524; --bad:#e5484d;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg); color:var(--fg); font:13px/1.5 "Segoe UI","Microsoft YaHei",sans-serif;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  button{
+    background:#282d36; color:var(--fg); border:1px solid var(--line);
+    padding:5px 10px; border-radius:6px; cursor:pointer; font-size:12px;
+  }
+  button:hover{background:#333a45;border-color:#414a58}
+  .group{display:flex; align-items:center; gap:6px}
+  .sep{width:1px;height:22px;background:var(--line);margin:0 4px}
+  .tag{font-size:11px;color:var(--dim)}
+
+  header{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    padding:8px 12px; background:var(--panel); border-bottom:1px solid var(--line);
+  }
+  label.file{
+    display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:6px;
+    border:1px dashed #414a58; cursor:pointer; font-size:12px; color:var(--dim);
+    max-width:280px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  label.file:hover{border-color:var(--accent); color:var(--fg)}
+  label.file.a{border-color:#2b6cb0}
+  label.file.b{border-color:#b0712b}
+  input[type=file]{display:none}
+
+  /* ---------- 图像区：左右并排 ---------- */
+  #view{flex:1; min-height:0; display:flex; gap:1px; background:var(--line); position:relative}
+  .pane{flex:1 1 50%; min-width:0; display:flex; flex-direction:column; background:var(--panel2)}
+  .pane-head{
+    display:flex; align-items:center; gap:8px; padding:5px 10px; font-size:11px; color:var(--dim);
+    border-bottom:1px solid var(--line); white-space:nowrap; overflow:hidden;
+  }
+  .pane-head .badge{font-weight:700; font-size:11px; padding:0 6px; border-radius:4px; color:#0b1220}
+  .pane-head .badge.a{background:#5aa2f0}
+  .pane-head .badge.b{background:#e0a04a}
+  .pane-head .nm{overflow:hidden; text-overflow:ellipsis; color:var(--fg)}
+  .pane-body{
+    flex:1; min-height:0; overflow:auto; display:flex; padding:12px;
+    background-image:
+      linear-gradient(45deg,#1b1e24 25%,transparent 25%),
+      linear-gradient(-45deg,#1b1e24 25%,transparent 25%),
+      linear-gradient(45deg,transparent 75%,#1b1e24 75%),
+      linear-gradient(-45deg,transparent 75%,#1b1e24 75%);
+    background-size:20px 20px; background-position:0 0,0 10px,10px -10px,-10px 0;
+  }
+  .pane-body canvas{display:block; margin:auto; background:#fff; box-shadow:0 4px 20px #0007; flex:none}
+  .pane-hint{
+    margin:auto; color:var(--dim); font-size:12px; text-align:center; padding:20px;
+    border:1px dashed #3a424f; border-radius:8px; max-width:240px;
+  }
+  .pane-body.zoomed{cursor:grab}
+  .pane-body.grabbing{cursor:grabbing}
+
+  #drop{
+    position:absolute; inset:16px; border:2px dashed #414a58; border-radius:12px;
+    display:flex; align-items:center; justify-content:center; color:var(--dim);
+    font-size:15px; pointer-events:none; opacity:0; transition:opacity .15s; text-align:center; padding:20px;
+    background:rgba(21,23,28,.72);
+  }
+  #view.drag #drop{opacity:1; border-color:var(--accent)}
+
+  /* ---------- 底部：像素详情（仿 BC） + 差异位置 ---------- */
+  #bottom{
+    flex:0 0 auto; height:250px; display:flex; flex-direction:row;
+    background:var(--panel); border-top:1px solid var(--line);
+  }
+  #bottom.hidden{display:none}
+
+  #pixelPanel{
+    flex:0 0 236px; display:flex; flex-direction:column; gap:6px;
+    padding:8px 12px; border-right:1px solid var(--line); background:var(--panel2);
+    font:10.5px/1.45 Consolas,"Cascadia Mono",monospace; color:var(--dim);
+    overflow:hidden;
+  }
+  .pp-title{font-size:11px; color:var(--fg); font-family:"Segoe UI","Microsoft YaHei",sans-serif}
+  .pp-grids{display:flex; gap:10px}
+  .pp-side{display:flex; flex-direction:column; gap:4px}
+  .pp-gridwrap{position:relative; display:inline-block; line-height:0}
+  .pp-tag{
+    position:absolute; top:0; left:0; line-height:1.2; font-size:9px; font-weight:700;
+    padding:0 3px 1px; border-radius:0 0 4px 0; color:#0b1220;
+  }
+  .pp-tag.a{background:#5aa2f0}
+  .pp-tag.b{background:#e0a04a}
+  .pp-side canvas{
+    display:block; background:#20242b; border:1px solid #333a45; border-radius:2px;
+    image-rendering:pixelated;
+  }
+  .pp-lines{display:flex; flex-direction:column; line-height:1.5}
+  .pp-lines b{color:var(--fg); font-weight:600}
+  .pp-lines .row{white-space:nowrap}
+  .pp-delta{padding-top:2px; white-space:nowrap}
+  .pp-delta.dok{color:var(--ok)}
+  .pp-delta.dab{color:var(--bad)}
+  .pp-delta.dwarn{color:var(--warn)}
+  .pp-row{display:flex; align-items:center; gap:7px; padding-top:4px}
+  .pp-row.tol{margin-top:auto; border-top:1px solid #262a32}
+  .pp-row .ppzl{flex:0 0 auto}
+  .pp-row input[type=range]{flex:1; width:auto; min-width:0; height:14px}
+  .pp-row .ppzv{flex:0 0 42px; text-align:right; color:var(--fg)}
+
+  #mapBand{flex:1; min-width:0; display:flex; padding:8px 12px}
+  #mapBox{
+    flex:1; min-width:0; display:flex; overflow:auto;
+    background:#0f1115; border:1px solid var(--line); border-radius:6px;
+  }
+  #mapBox.zoomed{cursor:grab}
+  #mapBox.grabbing{cursor:grabbing}
+  #diffMap{margin:auto; display:block; image-rendering:pixelated; flex:none; background:#fff}
+  #mapEmpty{color:var(--dim); font-size:11px; margin:auto}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="group">
+    <label class="file a" id="la">A：选择图片<input type="file" id="fa" accept="image/*,.tif,.tiff"></label>
+    <label class="file b" id="lb">B：选择图片<input type="file" id="fb" accept="image/*,.tif,.tiff"></label>
+    <button id="swap" title="交换 A / B">⇄</button>
+  </div>
+  <div class="sep"></div>
+  <div class="group" title="缩放只影响图像，不影响界面文字（Ctrl+滚轮 / Ctrl + + − 也可缩放）">
+    <button id="zoomOut">−</button>
+    <span class="tag" id="zv" style="width:42px;text-align:center">100%</span>
+    <button id="zoomIn">+</button>
+    <button id="zoomFit">适应</button>
+  </div>
+  <div class="sep"></div>
+  <div class="group">
+    <button id="toggleBottom">收起差异面板</button>
+  </div>
+</header>
+
+<div id="view">
+  <div class="pane">
+    <div class="pane-head"><span class="badge a">A</span><span class="nm" id="nmA">未载入</span><span class="tag" id="dimA"></span></div>
+    <div class="pane-body" id="bodyA">
+      <div class="pane-hint" id="hintA">拖入图片，或点左上角「A：选择图片」</div>
+      <canvas id="pA"></canvas>
+    </div>
+  </div>
+  <div class="pane">
+    <div class="pane-head"><span class="badge b">B</span><span class="nm" id="nmB">未载入</span><span class="tag" id="dimB"></span></div>
+    <div class="pane-body" id="bodyB">
+      <div class="pane-hint" id="hintB">拖入图片，或点左上角「B：选择图片」</div>
+      <canvas id="pB"></canvas>
+    </div>
+  </div>
+  <div id="drop">把两张图片拖进来 · 支持 TIFF / PNG / JPG / BMP / GIF / WEBP</div>
+</div>
+
+<section id="bottom">
+  <div id="pixelPanel">
+    <div class="pp-title">像素详情：</div>
+    <div class="pp-grids">
+      <div class="pp-side">
+        <div class="pp-gridwrap"><canvas id="gridA"></canvas><span class="pp-tag a">A</span></div>
+        <div class="pp-lines">
+          <span class="row">X: <b id="gxA">–</b> Y: <b id="gyA">–</b></span>
+          <span class="row">RGB: <b id="rgbA">–</b></span>
+          <span class="row">A: <b id="alphaA">–</b></span>
+        </div>
+      </div>
+      <div class="pp-side">
+        <div class="pp-gridwrap"><canvas id="gridB"></canvas><span class="pp-tag b">B</span></div>
+        <div class="pp-lines">
+          <span class="row">X: <b id="gxB">–</b> Y: <b id="gyB">–</b></span>
+          <span class="row">RGB: <b id="rgbB">–</b></span>
+          <span class="row">A: <b id="alphaB">–</b></span>
+        </div>
+      </div>
+    </div>
+    <div class="pp-delta" id="pixelDelta">Δ —</div>
+    <div class="pp-row tol">
+      <span class="ppzl">容差</span>
+      <input type="range" id="tolRange" min="0" max="255" step="1" value="0">
+      <span class="ppzv" id="tolLabel">0</span>
+    </div>
+    <div class="pp-row">
+      <span class="ppzl">缩放</span>
+      <input type="range" id="zoomRange" min="10" max="800" step="5" value="100">
+      <span class="ppzv" id="zoomRangeLabel">100%</span>
+    </div>
+  </div>
+
+  <div id="mapBand">
+    <div id="mapBox">
+      <canvas id="diffMap" width="1" height="1" style="display:none"></canvas>
+      <div id="mapEmpty">载入两张图片后，这里显示差异分布</div>
+    </div>
+  </div>
+</section>
+
+<!--LIBS-->
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const view = $('#view');
+  const pA = $('#pA'), pB = $('#pB');
+  const gpA = pA.getContext('2d'), gpB = pB.getContext('2d');
+  const bodyA = $('#bodyA'), bodyB = $('#bodyB');
+  const mapBox = $('#mapBox');
+
+  let imgA = null, imgB = null, aName = '', bName = '';
+  let nA = null, nB = null;          // 白底、同尺寸的离屏 canvas
+  let W = 0, H = 0;
+
+  let zoom = 1, fitZoom = 1;
+  let tolerance = 0;                 // 最大通道差 ≤ 容差 视为相同
+
+  let mask = null;                   // Uint8Array(W*H) 1=超出容差的差异
+  let diffCanvas = null;
+  let stats = null;
+  let regions = [];
+
+  /* ================= 载入与解码 ================= */
+
+  const TIFF_RE = /\.(tiff?|tif)$/i;
+
+  function loadURL(url) {
+    return new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = () => rej(new Error('图像解码失败'));
+      im.src = url;
+    });
+  }
+  function blobToImage(blob) {
+    return new Promise((res, rej) => {
+      const u = URL.createObjectURL(blob);
+      const im = new Image();
+      im.onload = () => { URL.revokeObjectURL(u); res(im); };
+      im.onerror = () => { URL.revokeObjectURL(u); rej(new Error('图像解码失败')); };
+      im.src = u;
+    });
+  }
+
+  async function decodeImage(file) {
+    const isTiff = TIFF_RE.test(file.name) || file.type === 'image/tiff';
+    const buf = await file.arrayBuffer();
+
+    // 普通格式先交给浏览器
+    if (!isTiff) {
+      try { return await blobToImage(new Blob([buf], { type: file.type || undefined })); }
+      catch (e) { /* 落到 TIFF 解码 */ }
+    }
+
+    // TIFF：Deflate(8) / Adobe Deflate(32946) / LZW / PackBits，8/16 位
+    if (typeof UTIF === 'undefined') throw new Error('这个格式浏览器不支持，且 TIFF 解码库未加载');
+    const ifds = UTIF.decode(buf);
+    if (!ifds || !ifds.length) throw new Error('TIFF 里没有找到图像数据');
+    UTIF.decodeImage(buf, ifds[0]);
+    const w = ifds[0].width, h = ifds[0].height;
+    if (!w || !h) throw new Error('TIFF 尺寸读取失败');
+    const rgba = UTIF.toRGBA8(ifds[0]);
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const g = c.getContext('2d');
+    const id = g.createImageData(w, h);
+    id.data.set(rgba);
+    g.putImageData(id, 0, 0);
+    const img = await loadURL(c.toDataURL('image/png'));
+    img.pageCount = ifds.length;
+    return img;
+  }
+
+  async function loadFile(file, which) {
+    if (!file) return;
+    const looksImage = (file.type && file.type.startsWith('image/')) || TIFF_RE.test(file.name);
+    if (!looksImage) { alert('不是图片文件：' + file.name); return; }
+    let img;
+    try { img = await decodeImage(file); }
+    catch (e) { alert('打不开：' + file.name + '\n' + (e && e.message ? e.message : e)); return; }
+
+    if (which === 'a') { imgA = img; aName = file.name; }
+    else { imgB = img; bName = file.name; }
+    updateHeadLabels();
+    rebuild();
+  }
+
+  const shorten = (n, max = 40) => n.length > max ? n.slice(0, max - 12) + '…' + n.slice(-10) : n;
+
+  function updateHeadLabels() {
+    $('#la').lastChild.textContent = 'A：' + (aName ? shorten(aName, 26) : '选择图片');
+    $('#lb').lastChild.textContent = 'B：' + (bName ? shorten(bName, 26) : '选择图片');
+    $('#nmA').textContent = aName ? shorten(aName) : '未载入';
+    $('#nmB').textContent = bName ? shorten(bName) : '未载入';
+    $('#dimA').textContent = imgA ? `${imgA.naturalWidth}×${imgA.naturalHeight}` : '';
+    $('#dimB').textContent = imgB ? `${imgB.naturalWidth}×${imgB.naturalHeight}` : '';
+  }
+
+  function normalize(img, w, h) {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.fillStyle = '#ffffff';                        // 透明区域按白底
+    g.fillRect(0, 0, w, h);
+    g.imageSmoothingEnabled = false;
+    g.drawImage(img, 0, 0);
+    return c;
+  }
+
+  function rebuild() {
+    if (!imgA && !imgB) return;
+    const aw = imgA ? imgA.naturalWidth : 0, ah = imgA ? imgA.naturalHeight : 0;
+    const bw = imgB ? imgB.naturalWidth : 0, bh = imgB ? imgB.naturalHeight : 0;
+    W = Math.max(aw, bw);
+    H = Math.max(ah, bh);
+    if (!W || !H) return;
+
+    nA = imgA ? normalize(imgA, W, H) : null;
+    nB = imgB ? normalize(imgB, W, H) : null;
+    pA.width = W; pA.height = H;
+    pB.width = W; pB.height = H;
+
+    if (nA && nB) {
+      computeDiff();
+    } else {
+      mask = null; diffCanvas = null; stats = null; regions = [];
+    }
+
+    updateEmptyHints();
+    renderMap();
+    applyFit();
+    zoom = fitZoom;
+    applyZoom();
+    render();
+    if (lastSample) {
+      if (lastSample.x >= W || lastSample.y >= H) lastSample = null;
+      else updateSample(lastSample.x, lastSample.y);
+    }
+  }
+
+  function updateEmptyHints() {
+    $('#hintA').style.display = imgA ? 'none' : '';
+    $('#hintB').style.display = imgB ? 'none' : '';
+    pA.style.display = imgA ? '' : 'none';
+    pB.style.display = imgB ? '' : 'none';
+  }
+
+  /* ================= 差异计算 ================= */
+
+  const pxCache = new WeakMap();
+  function pixels(cv) {
+    let d = pxCache.get(cv);
+    if (!d) {
+      d = cv.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, cv.width, cv.height);
+      pxCache.set(cv, d);
+    }
+    return d;
+  }
+
+  function computeDiff() {
+    const a = pixels(nA).data, b = pixels(nB).data;
+    const n = W * H;
+    mask = new Uint8Array(n);
+
+    diffCanvas = document.createElement('canvas');
+    diffCanvas.width = W; diffCanvas.height = H;
+    const dg = diffCanvas.getContext('2d');
+    const out = dg.createImageData(W, H);
+    const o = out.data;
+
+    let count = 0, maxDelta = 0, sumDelta = 0;
+    let bx0 = W, by0 = H, bx1 = -1, by1 = -1;
+    const GAIN = 4;
+
+    for (let p = 0, i = 0; p < n; p++, i += 4) {
+      const dr = a[i] - b[i], dg2 = a[i + 1] - b[i + 1], db = a[i + 2] - b[i + 2];
+      const adr = dr < 0 ? -dr : dr, adg = dg2 < 0 ? -dg2 : dg2, adb = db < 0 ? -db : db;
+      const mx = adr > adg ? (adr > adb ? adr : adb) : (adg > adb ? adg : adb);
+      if (mx > tolerance) {
+        mask[p] = 1;
+        count++;
+        if (mx > maxDelta) maxDelta = mx;
+        sumDelta += mx;
+        const x = p % W, y = (p - x) / W;
+        if (x < bx0) bx0 = x; if (x > bx1) bx1 = x;
+        if (y < by0) by0 = y; if (y > by1) by1 = y;
+        o[i] = 255;
+        o[i + 1] = adg < 63 ? 255 - adg * GAIN : 0;
+        o[i + 2] = 255;
+      } else {
+        const g = a[i] * 0.3 + a[i + 1] * 0.59 + a[i + 2] * 0.11;
+        const v = 238 - g * 0.10;
+        o[i] = o[i + 1] = o[i + 2] = v;
+      }
+      o[i + 3] = 255;
+    }
+    dg.putImageData(out, 0, 0);
+
+    stats = {
+      count, pct: count / n * 100, maxDelta,
+      meanDelta: count ? sumDelta / count : 0,
+      bbox: count ? { x: bx0, y: by0, w: bx1 - bx0 + 1, h: by1 - by0 + 1 } : null,
+      total: n, tolerance
+    };
+    regions = count ? labelRegions() : [];
+  }
+
+  function labelRegions() {
+    // 大图先降采样做连通域，避免几百万像素的洪泛
+    if (W * H > 1.5e6) return coarseRegions();
+    return floodRegions(mask, W, H, 1);
+  }
+
+  function floodRegions(m, w, h, scale) {
+    const labels = new Int32Array(w * h);
+    const stack = new Int32Array(w * h);
+    const out = [];
+    for (let i = 0; i < m.length; i++) {
+      if (!m[i] || labels[i]) continue;
+      let sp = 0; stack[sp++] = i; labels[i] = 1;
+      let minX = w, minY = h, maxX = -1, maxY = -1, cnt = 0;
+      while (sp) {
+        const p = stack[--sp];
+        const x = p % w, y = (p - x) / w;
+        cnt++;
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+        if (x > 0)     { const q = p - 1; if (m[q] && !labels[q]) { labels[q] = 1; stack[sp++] = q; } }
+        if (x < w - 1) { const q = p + 1; if (m[q] && !labels[q]) { labels[q] = 1; stack[sp++] = q; } }
+        if (y > 0)     { const q = p - w; if (m[q] && !labels[q]) { labels[q] = 1; stack[sp++] = q; } }
+        if (y < h - 1) { const q = p + w; if (m[q] && !labels[q]) { labels[q] = 1; stack[sp++] = q; } }
+      }
+      out.push({ x: minX * scale, y: minY * scale, w: (maxX - minX + 1) * scale, h: (maxY - minY + 1) * scale, count: cnt });
+    }
+    out.sort((p, q) => q.count - p.count);
+    return out;
+  }
+
+  function coarseRegions() {
+    const k = Math.ceil(Math.sqrt(W * H / 1e6));
+    const gw = Math.floor(W / k), gh = Math.floor(H / k);
+    const m = new Uint8Array(gw * gh);
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        let hit = 0;
+        for (let dy = 0; dy < k && !hit; dy++) {
+          const row = (y * k + dy) * W + x * k;
+          for (let dx = 0; dx < k; dx++) if (mask[row + dx]) { hit = 1; break; }
+        }
+        m[y * gw + x] = hit;
+      }
+    }
+    const rs = floodRegions(m, gw, gh, k);
+    rs.coarse = true;
+    return rs;
+  }
+
+  /* ================= 渲染 ================= */
+
+  function render() {
+    if (!W || !H) return;
+    gpA.clearRect(0, 0, W, H);
+    gpB.clearRect(0, 0, W, H);
+    if (nA) gpA.drawImage(nA, 0, 0);
+    if (nB) gpB.drawImage(nB, 0, 0);
+  }
+
+  function renderMap() {
+    const cv = $('#diffMap');
+    const empty = $('#mapEmpty');
+    if (!nA || !nB || !stats) {
+      cv.style.display = 'none';
+      empty.style.display = '';
+      empty.textContent = (nA || nB) ? '需要两张图片才能比对差异' : '载入图片后，这里显示差异分布';
+      return;
+    }
+    empty.style.display = 'none';
+    cv.style.display = '';
+
+    cv.width = W; cv.height = H;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, W, H);
+    if (diffCanvas) g.drawImage(diffCanvas, 0, 0);
+
+    const lw = Math.max(1, Math.round(W / 320));
+    regions.slice(0, 40).forEach(r => {
+      g.lineWidth = lw;
+      g.strokeStyle = 'rgba(30,90,200,.85)';
+      g.strokeRect(r.x + lw / 2, r.y + lw / 2, Math.max(r.w - lw, lw), Math.max(r.h - lw, lw));
+    });
+  }
+
+  /* ================= 缩放 ================= */
+
+  function applyFit() {
+    if (!W || !H) return;
+    const aw = Math.max(bodyA.clientWidth - 24, 40);
+    const ah = Math.max(bodyA.clientHeight - 24, 40);
+    fitZoom = Math.min(aw / W, ah / H, 1);
+    if (!isFinite(fitZoom) || fitZoom <= 0) fitZoom = 1;
+  }
+
+  function applyZoom() {
+    const pix = zoom >= 1 ? 'pixelated' : 'auto';
+    const cw = W * zoom, chh = H * zoom;
+    [pA, pB].forEach(c => {
+      c.style.width = cw + 'px';
+      c.style.height = chh + 'px';
+      c.style.imageRendering = pix;
+    });
+
+    const map = $('#diffMap');
+    if (map) {
+      map.style.width = cw + 'px';
+      map.style.height = chh + 'px';
+      map.style.imageRendering = pix;
+    }
+
+    const pct = Math.round(zoom * 100);
+    $('#zv').textContent = pct + '%';
+    const zr = $('#zoomRange');
+    if (zr) {
+      zr.value = Math.min(+zr.max, Math.max(+zr.min, pct));
+      $('#zoomRangeLabel').textContent = pct + '%';
+    }
+    markZoomCursor();
+  }
+
+  function markZoomCursor() {
+    [bodyA, bodyB, mapBox].forEach(b => {
+      const can = b.scrollWidth > b.clientWidth + 1 || b.scrollHeight > b.clientHeight + 1;
+      b.classList.toggle('zoomed', can);
+    });
+  }
+
+  function setZoom(z) {
+    zoom = Math.min(Math.max(z, 0.05), 16);
+    applyZoom();
+  }
+
+  // 以光标位置为锚点缩放（保持指针下的像素不动）
+  function zoomAt(cx, cy, factor) {
+    const old = zoom;
+    const nz = Math.min(Math.max(old * factor, 0.05), 16);
+    if (nz === old) return;
+    const scroller = (document.elementFromPoint(cx, cy) || document.body).closest('.pane-body, #mapBox') || bodyA;
+    const r = scroller.getBoundingClientRect();
+    const ox = cx - r.left + scroller.scrollLeft;
+    const oy = cy - r.top + scroller.scrollTop;
+    zoom = nz;
+    applyZoom();
+    const k = nz / old;
+    scroller.scrollLeft = Math.max(0, ox * k - (cx - r.left));
+    scroller.scrollTop = Math.max(0, oy * k - (cy - r.top));
+    requestAnimationFrame(() => {
+      scroller.scrollLeft = Math.max(0, ox * k - (cx - r.left));
+      scroller.scrollTop = Math.max(0, oy * k - (cy - r.top));
+    });
+  }
+
+  /* ================= 像素详情（左下角，仿 Beyond Compare） ================= */
+
+  const GRID_COLS = 9, GRID_ROWS = 5, BLOCK = 11;
+
+  const pixelSides = [
+    { cv: $('#gridA'), get: () => nA, x: $('#gxA'), y: $('#gyA'), rgb: $('#rgbA'), al: $('#alphaA') },
+    { cv: $('#gridB'), get: () => nB, x: $('#gxB'), y: $('#gyB'), rgb: $('#rgbB'), al: $('#alphaB') }
+  ];
+  const pixelDeltaEl = $('#pixelDelta');
+  let lastSample = null;
+
+  function readPixel(cv, x, y) {
+    const d = pixels(cv).data;
+    const i = (y * cv.width + x) * 4;
+    return { r: d[i], g: d[i + 1], b: d[i + 2], a: d[i + 3] };
+  }
+
+  // 画放大像素阵列：光标像素在正中，越界画成暗底斜线
+  function drawPixelGrid(cv, src, x, y) {
+    const dpr = window.devicePixelRatio || 1;
+    const cw = GRID_COLS * BLOCK, chh = GRID_ROWS * BLOCK;
+    cv.width = Math.round(cw * dpr);
+    cv.height = Math.round(chh * dpr);
+    cv.style.width = cw + 'px';
+    cv.style.height = chh + 'px';
+
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, cw, chh);
+
+    const ox = x - (GRID_COLS >> 1);
+    const oy = y - (GRID_ROWS >> 1);
+    const data = pixels(src).data;
+
+    for (let r = 0; r < GRID_ROWS; r++) {
+      for (let c = 0; c < GRID_COLS; c++) {
+        const sx = ox + c, sy = oy + r;
+        const px = c * BLOCK, py = r * BLOCK;
+        if (sx < 0 || sy < 0 || sx >= W || sy >= H) {
+          g.fillStyle = '#191c22';
+          g.fillRect(px, py, BLOCK, BLOCK);
+          g.strokeStyle = '#2a2f38';
+          g.lineWidth = 1;
+          g.beginPath();
+          g.moveTo(px, py + BLOCK); g.lineTo(px + BLOCK, py);
+          g.stroke();
+          continue;
+        }
+        const i = (sy * W + sx) * 4;
+        g.fillStyle = `rgb(${data[i]},${data[i + 1]},${data[i + 2]})`;
+        g.fillRect(px, py, BLOCK, BLOCK);
+      }
+    }
+
+    // 细网格
+    g.strokeStyle = 'rgba(0,0,0,.28)';
+    g.lineWidth = 1;
+    for (let c = 1; c < GRID_COLS; c++) {
+      g.beginPath(); g.moveTo(c * BLOCK + .5, 0); g.lineTo(c * BLOCK + .5, chh); g.stroke();
+    }
+    for (let r = 1; r < GRID_ROWS; r++) {
+      g.beginPath(); g.moveTo(0, r * BLOCK + .5); g.lineTo(cw, r * BLOCK + .5); g.stroke();
+    }
+
+    // 中心像素：白描边 + 十字准星
+    const cx = (GRID_COLS >> 1) * BLOCK, cy = (GRID_ROWS >> 1) * BLOCK;
+    g.strokeStyle = '#000';
+    g.lineWidth = 3;
+    g.strokeRect(cx - 1, cy - 1, BLOCK + 2, BLOCK + 2);
+    g.strokeStyle = '#fff';
+    g.lineWidth = 1.5;
+    g.strokeRect(cx - .5, cy - .5, BLOCK + 1, BLOCK + 1);
+    g.strokeStyle = 'rgba(255,255,255,.85)';
+    g.beginPath();
+    g.moveTo(cx + BLOCK / 2, cy); g.lineTo(cx + BLOCK / 2, cy + BLOCK);
+    g.moveTo(cx, cy + BLOCK / 2); g.lineTo(cx + BLOCK, cy + BLOCK / 2);
+    g.stroke();
+  }
+
+  function updateSample(x, y) {
+    if (!W || !H) return;
+    const vals = [nA ? readPixel(nA, x, y) : null, nB ? readPixel(nB, x, y) : null];
+
+    pixelSides.forEach((s, i) => {
+      const p = vals[i];
+      s.x.textContent = x;
+      s.y.textContent = y;
+      if (p) {
+        s.rgb.textContent = `${p.r}, ${p.g}, ${p.b}`;
+        s.al.textContent = p.a;
+        drawPixelGrid(s.cv, s.get(), x, y);
+      } else {
+        s.rgb.textContent = '–';
+        s.al.textContent = '–';
+        clearGrid(s.cv);
+      }
+    });
+
+    const a = vals[0], b = vals[1];
+    if (!a || !b) {
+      pixelDeltaEl.className = 'pp-delta';
+      pixelDeltaEl.textContent = 'Δ —（需要两张图片）';
+      return;
+    }
+
+    const dr = a.r - b.r, dg = a.g - b.g, db = a.b - b.b;
+    const mx = Math.max(Math.abs(dr), Math.abs(dg), Math.abs(db));
+    const sign = v => (v > 0 ? '+' : '') + v;
+    if (mx === 0) {
+      pixelDeltaEl.className = 'pp-delta dok';
+      pixelDeltaEl.textContent = 'Δ 0 · 相同';
+    } else if (mx <= tolerance) {
+      pixelDeltaEl.className = 'pp-delta dwarn';
+      pixelDeltaEl.textContent = `Δ ${mx} (${sign(dr)},${sign(dg)},${sign(db)}) · 容差内`;
+    } else {
+      pixelDeltaEl.className = 'pp-delta dab';
+      pixelDeltaEl.textContent = `Δ ${mx} (${sign(dr)},${sign(dg)},${sign(db)}) · 不同`;
+    }
+  }
+
+  function clearGrid(cv) {
+    const dpr = window.devicePixelRatio || 1;
+    const cw = GRID_COLS * BLOCK, chh = GRID_ROWS * BLOCK;
+    cv.width = Math.round(cw * dpr);
+    cv.height = Math.round(chh * dpr);
+    cv.style.width = cw + 'px';
+    cv.style.height = chh + 'px';
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = '#20242b';
+    g.fillRect(0, 0, cw, chh);
+  }
+
+  function attachSampler(el) {
+    if (!el) return;
+    const pick = e => {
+      if (!W || !H) return;
+      if (el.dataset.panned) return;                 // 正在拖动平移，不取样
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      // clientX/Y 是整数，边界像素会算出 -1 或 W，这里钳制到有效范围
+      const x = Math.min(W - 1, Math.max(0, Math.floor((e.clientX - r.left) / r.width * W)));
+      const y = Math.min(H - 1, Math.max(0, Math.floor((e.clientY - r.top) / r.height * H)));
+      lastSample = { x, y };
+      updateSample(x, y);
+    };
+    el.addEventListener('mousemove', pick);
+    el.addEventListener('mousedown', pick);
+  }
+  attachSampler(pA);
+  attachSampler(pB);
+  attachSampler($('#diffMap'));
+
+  /* ================= 交互 ================= */
+
+  $('#fa').onchange = e => loadFile(e.target.files[0], 'a');
+  $('#fb').onchange = e => loadFile(e.target.files[0], 'b');
+
+  $('#swap').onclick = () => {
+    if (!imgA && !imgB) return;
+    [imgA, imgB] = [imgB, imgA];
+    [aName, bName] = [bName, aName];
+    updateHeadLabels();
+    rebuild();
+  };
+
+  $('#zoomIn').onclick = () => setZoom(zoom * 1.25);
+  $('#zoomOut').onclick = () => setZoom(zoom / 1.25);
+  $('#zoomFit').onclick = () => { applyFit(); setZoom(fitZoom); };
+
+  $('#toggleBottom').onclick = () => {
+    const b = $('#bottom');
+    b.classList.toggle('hidden');
+    $('#toggleBottom').textContent = b.classList.contains('hidden') ? '展开差异面板' : '收起差异面板';
+    applyFit();
+    markZoomCursor();
+  };
+
+  // 缩放只作用于图像：Ctrl/Cmd + 滚轮，Ctrl/Cmd + "-" "0"
+  document.addEventListener('wheel', e => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    if (!W || !H) { e.preventDefault(); return; }
+    e.preventDefault();
+    e.stopPropagation();
+    zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.12 : 1 / 1.12);
+  }, { passive: false, capture: true });
+
+  window.addEventListener('keydown', e => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const k = e.key;
+    if (k !== '=' && k !== '+' && k !== '-' && k !== '_' && k !== '0') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!W || !H) return;
+    if (k === '0') { applyFit(); setZoom(fitZoom); }
+    else if (k === '-') setZoom(zoom / 1.25);
+    else setZoom(zoom * 1.25);
+  }, { capture: true });
+
+  /* 三个视区（A、B、差异位置图）滚动/平移联动：
+     不依赖 scroll 事件（后台标签页会被节流），拖动时直接同步一次。 */
+  const scrollers = [bodyA, bodyB, mapBox];
+
+  function mirrorScroll(from) {
+    if (!scrollers.includes(from)) return;
+    scrollers.forEach(to => {
+      if (to === from) return;
+      if (Math.abs(to.scrollLeft - from.scrollLeft) < 1 && Math.abs(to.scrollTop - from.scrollTop) < 1) return;
+      to.scrollLeft = from.scrollLeft;
+      to.scrollTop = from.scrollTop;
+    });
+  }
+
+  function bindPan(el) {
+    let on = false, sx = 0, sy = 0, sl = 0, st = 0;
+    el.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      const canPan = el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1;
+      if (!canPan) return;
+      on = true; sx = e.clientX; sy = e.clientY; sl = el.scrollLeft; st = el.scrollTop;
+      el.classList.add('grabbing');
+      el.dataset.panned = '';
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', e => {
+      if (!on) return;
+      el.scrollLeft = sl - (e.clientX - sx);
+      el.scrollTop = st - (e.clientY - sy);
+      mirrorScroll(el);
+      if (Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy) > 3) el.dataset.panned = '1';
+    });
+    window.addEventListener('mouseup', () => {
+      if (!on) return;
+      on = false;
+      el.classList.remove('grabbing');
+      setTimeout(() => { delete el.dataset.panned; }, 0);
+    });
+  }
+  bindPan(bodyA);
+  bindPan(bodyB);
+  bindPan(mapBox);
+
+  bodyA.addEventListener('scroll', () => mirrorScroll(bodyA));
+  bodyB.addEventListener('scroll', () => mirrorScroll(bodyB));
+  mapBox.addEventListener('scroll', () => mirrorScroll(mapBox));
+
+  // 左下角滑杆
+  const zoomRange = $('#zoomRange');
+  zoomRange.addEventListener('input', () => {
+    if (!W || !H) { zoomRange.value = Math.round(zoom * 100); return; }
+    setZoom(zoomRange.value / 100);
+  });
+
+  const tolRange = $('#tolRange'), tolLabel = $('#tolLabel');
+  let tolTimer = null;
+  tolRange.addEventListener('input', () => {
+    tolerance = +tolRange.value || 0;
+    tolLabel.textContent = tolerance;
+    if (lastSample) updateSample(lastSample.x, lastSample.y);
+    if (tolTimer) clearTimeout(tolTimer);
+    tolTimer = setTimeout(() => {
+      tolTimer = null;
+      if (!nA || !nB) return;
+      computeDiff();
+      renderMap();
+      render();
+    }, 90);
+  });
+
+  // 拖拽放图
+  ['dragenter', 'dragover'].forEach(ev =>
+    view.addEventListener(ev, e => { e.preventDefault(); view.classList.add('drag'); }));
+  view.addEventListener('dragleave', e => {
+    e.preventDefault();
+    if (!view.contains(e.relatedTarget)) view.classList.remove('drag');
+  });
+  document.addEventListener('dragover', e => e.preventDefault());
+  document.addEventListener('drop', e => {
+    e.preventDefault();
+    view.classList.remove('drag');
+    const files = [...e.dataTransfer.files].filter(f => (f.type && f.type.startsWith('image/')) || TIFF_RE.test(f.name));
+    if (files.length >= 2) { loadFile(files[0], 'a'); loadFile(files[1], 'b'); }
+    else if (files.length === 1) { loadFile(files[0], imgA ? 'b' : 'a'); }
+  });
+
+  window.addEventListener('resize', () => {
+    if (!nA) return;
+    applyFit();
+    markZoomCursor();
+  });
+})();
+</script>
+</body>
+</html>
