@@ -1,4 +1,4 @@
 # 按原始字节保存，不做 CRLF / LF 转换。
-# 原因：成品 HTML 由源码用脚本拼接生成，若换行被改写，
+# 原因：build/image_compare.html 由 src/ 用脚本拼接生成，若换行被改写，
 # 重新生成的结果会与仓库里的成品不再逐字节一致。
 picture_compare/** -text

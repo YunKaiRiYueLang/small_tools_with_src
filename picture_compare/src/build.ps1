@@ -1,10 +1,10 @@
-﻿# 把 源码\index.html 与两个解码库合并成单个 HTML，输出到 成品\图片比对.html
-# 用法：右键本文件 -> 使用 PowerShell 运行；或在 PowerShell 里执行 .\生成成品.ps1
+﻿# 把 src\index.html 与两个解码库合并成单个 HTML，输出到 build\image_compare.html
+# 用法：右键本文件 -> 使用 PowerShell 运行；或在 PowerShell 里执行 .\build.ps1
 $ErrorActionPreference = 'Stop'
 
 $srcDir  = $PSScriptRoot
-$outDir  = Join-Path (Split-Path $srcDir -Parent) '成品'
-$outFile = Join-Path $outDir '图片比对.html'
+$outDir  = Join-Path (Split-Path $srcDir -Parent) 'build'
+$outFile = Join-Path $outDir 'image_compare.html'
 
 $htmlPath = Join-Path $srcDir 'index.html'
 if (-not (Test-Path $htmlPath)) { throw "找不到 index.html：$htmlPath" }
